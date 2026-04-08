@@ -1,0 +1,91 @@
+name: Trivy Security Scan
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy-scan:
+    name: Run Trivy Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------
+      # NODE SETUP (optional)
+      # -----------------------------
+      - name: Setup Node.js
+        if: hashFiles('**/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Node dependencies
+        if: hashFiles('**/package-lock.json') != ''
+        run: npm ci
+
+      # -----------------------------
+      # PYTHON SETUP (optional)
+      # -----------------------------
+      - name: Setup Python
+        if: hashFiles('**/requirements.txt') != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
+        if: hashFiles('**/requirements.txt') != ''
+        run: pip install -r requirements.txt
+
+      # -----------------------------
+      # FILESYSTEM SCAN (SARIF)
+      # -----------------------------
+      - name: Run Trivy scan (SARIF)
+        uses: aquasecurity/trivy-action@v0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+
+      # Upload results to GitHub Security tab
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      # -----------------------------
+      # OPTIONAL: PRINT RESULTS (NO FAIL)
+      # -----------------------------
+      - name: Run Trivy scan (log only)
+        uses: aquasecurity/trivy-action@v0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 0   # <-- important (never fail)
+
+      # -----------------------------
+      # DOCKER BUILD + SCAN
+      # -----------------------------
+      - name: Build Docker image
+        if: hashFiles('Dockerfile') != ''
+        run: docker build -t test-image .
+
+      - name: Scan Docker image (log only)
+        if: hashFiles('Dockerfile') != ''
+        uses: aquasecurity/trivy-action@v0.24.0
+        with:
+          image-ref: test-image
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 0   # <-- important
